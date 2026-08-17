@@ -1,0 +1,8 @@
+---
+- name: Finalize golden Linux image
+  hosts: golden
+  become: true
+  gather_facts: true
+
+  roles:
+    - golden_finalize

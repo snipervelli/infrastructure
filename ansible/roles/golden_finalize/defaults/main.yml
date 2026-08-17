@@ -1,0 +1,19 @@
+---
+# Safety guard. The role will refuse to run unless this exact value is supplied.
+golden_finalize_confirm: ""
+
+# Automation account whose injected SSH key should not be baked into the image.
+golden_finalize_ansible_user: ansible
+
+# Remove the automation user's current authorized_keys file.
+# Future clones should receive their key from Proxmox Cloud-Init.
+golden_finalize_remove_authorized_keys: true
+
+# Remove SSH host keys so each clone generates unique host keys.
+golden_finalize_remove_ssh_host_keys: true
+
+# Clean Cloud-Init state and reset machine-id.
+golden_finalize_clean_cloud_init: true
+
+# Shut down automatically after successful finalization.
+golden_finalize_shutdown: true

@@ -1,0 +1,102 @@
+---
+- name: Require explicit confirmation before golden image finalization
+  ansible.builtin.assert:
+    that:
+      - golden_finalize_confirm == "YES-I-UNDERSTAND"
+    fail_msg: >-
+      Golden image finalization refused.
+      Run this role only against a dedicated template candidate and set
+      golden_finalize_confirm=YES-I-UNDERSTAND.
+    success_msg: "Golden image finalization explicitly authorized."
+
+- name: Display target being finalized
+  ansible.builtin.debug:
+    msg:
+      - "WARNING: finalizing {{ inventory_hostname }}"
+      - "Hostname: {{ ansible_fqdn | default(ansible_hostname) }}"
+      - "Machine ID will be reset."
+      - "SSH host keys will be removed."
+      - "Cloud-Init state will be cleaned."
+      - "The VM may be powered off when complete."
+
+- name: Verify SSH configuration before removing host keys
+  ansible.builtin.command:
+    cmd: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: Verify Cloud-Init is installed
+  ansible.builtin.command:
+    cmd: /usr/bin/cloud-init --version
+  register: golden_finalize_cloud_init_version
+  changed_when: false
+  when: golden_finalize_clean_cloud_init | bool
+
+- name: Verify automation account exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ golden_finalize_ansible_user }}"
+
+- name: Remove automation user's authorized keys
+  ansible.builtin.file:
+    path: "/home/{{ golden_finalize_ansible_user }}/.ssh/authorized_keys"
+    state: absent
+  when: golden_finalize_remove_authorized_keys | bool
+
+- name: Clean Cloud-Init state and reset machine-id
+  ansible.builtin.command:
+    cmd: /usr/bin/cloud-init clean --logs --machine-id
+  when: golden_finalize_clean_cloud_init | bool
+  changed_when: true
+
+- name: Remove existing SSH host keys
+  ansible.builtin.shell:
+    cmd: rm -f /etc/ssh/ssh_host_*
+    executable: /bin/bash
+  when: golden_finalize_remove_ssh_host_keys | bool
+  changed_when: true
+
+- name: Check machine-id state
+  ansible.builtin.command:
+    cmd: cat /etc/machine-id
+  register: golden_finalize_machine_id
+  changed_when: false
+  failed_when: false
+
+- name: Verify machine-id was reset
+  ansible.builtin.assert:
+    that:
+      - golden_finalize_machine_id.stdout | trim in ["", "uninitialized"]
+    fail_msg: >-
+      /etc/machine-id was not reset as expected.
+      Current value: {{ golden_finalize_machine_id.stdout | trim }}
+    success_msg: "Machine ID has been reset."
+
+- name: Check for remaining SSH host keys
+  ansible.builtin.find:
+    paths: /etc/ssh
+    patterns: "ssh_host_*"
+    file_type: file
+  register: golden_finalize_host_keys
+  when: golden_finalize_remove_ssh_host_keys | bool
+
+- name: Verify SSH host keys were removed
+  ansible.builtin.assert:
+    that:
+      - golden_finalize_host_keys.matched == 0
+    fail_msg: "One or more SSH host keys remain."
+    success_msg: "SSH host keys removed successfully."
+  when: golden_finalize_remove_ssh_host_keys | bool
+
+- name: Golden image finalization complete
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} is generalized and ready to be powered off
+      and converted to a Proxmox template.
+
+- name: Power off finalized golden image
+  ansible.builtin.command:
+    cmd: /usr/sbin/shutdown -h now
+  async: 1
+  poll: 0
+  changed_when: true
+  when: golden_finalize_shutdown | bool
