@@ -1,0 +1,34 @@
+---
+base_linux_packages:
+  - cloud-init
+  - qemu-guest-agent
+  - openssh-server
+  - sudo
+  - vim-enhanced
+  - nano 
+  - curl
+  - wget
+  - git
+  - rsync
+  - tar
+  - unzip
+  - bash-completion
+  - bind-utils
+  - iproute
+  - iputils
+  - lsof
+  - chrony
+  - lsof 
+  - traceroute
+  - nmap-ncat
+  - tree
+  - bash-completion
+  - nano
+  - vim-enhanced
+  - tcpdump
+
+base_linux_services:
+  - qemu-guest-agent
+  - sshd
+  - chronyd
+  - firewalld

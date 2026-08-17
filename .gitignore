@@ -1,0 +1,32 @@
+# Ansible
+*.retry
+ansible/.ansible/
+ansible/facts/
+
+# Secrets
+*.key
+*.pem
+*.p12
+*.pfx
+*.vault
+vault-password*
+.env
+.env.*
+
+# SSH private keys
+id_rsa
+id_ed25519
+ansible_ed25519
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+
+# Temporary files
+*.tmp
+*.bak

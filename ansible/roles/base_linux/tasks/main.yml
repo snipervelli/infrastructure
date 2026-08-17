@@ -1,0 +1,59 @@
+---
+- name: Ensure baseline packages are installed
+  ansible.builtin.dnf:
+    name: "{{ base_linux_packages }}"
+    state: present
+
+- name: Ensure core services are enabled and running
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: "{{ base_linux_services }}"
+
+- name: Ensure SELinux is enforcing
+  ansible.builtin.command:
+    cmd: setenforce 1
+  changed_when: false
+  when: ansible_selinux.status == "enabled"
+
+- name: Ensure SELinux persists in enforcing mode
+  ansible.builtin.lineinfile:
+    path: /etc/selinux/config
+    regexp: '^SELINUX='
+    line: 'SELINUX=enforcing'
+
+- name: Remove old SSH hardening drop-in
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/60-erwinsolutions-hardening.conf
+    state: absent
+  notify: Restart sshd
+
+- name: Enforce SSH hardening policy
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-erwinsolutions-hardening.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+      PermitRootLogin prohibit-password
+    validate: '/usr/sbin/sshd -t -f %s'
+  notify: Restart sshd
+
+- name: Ensure ansible has passwordless sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-ansible
+    owner: root
+    group: root
+    mode: '0440'
+    content: |
+      ansible ALL=(ALL) NOPASSWD: ALL
+    validate: '/usr/sbin/visudo -cf %s'
+
+- name: Ensure time synchronization is active
+  ansible.builtin.service:
+    name: chronyd
+    enabled: true
+    state: started

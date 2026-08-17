@@ -1,0 +1,6 @@
+---
+- name: Apply baseline Linux configuration
+  hosts: rocky
+  become: true
+  roles:
+    - base_linux

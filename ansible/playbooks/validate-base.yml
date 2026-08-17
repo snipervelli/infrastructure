@@ -1,0 +1,62 @@
+---
+- name: Validate Linux baseline
+  hosts: rocky
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Verify required services are running
+      ansible.builtin.command:
+        cmd: systemctl is-active {{ item }}
+      loop:
+        - sshd
+        - chronyd
+        - firewalld
+        - qemu-guest-agent
+      changed_when: false
+
+    - name: Read effective SSH configuration
+      ansible.builtin.command:
+        cmd: sshd -T
+      register: sshd_config
+      changed_when: false
+
+    - name: Verify SSH security policy
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in sshd_config.stdout"
+          - "'pubkeyauthentication yes' in sshd_config.stdout"
+          - "'permitrootlogin without-password' in sshd_config.stdout or 'permitrootlogin prohibit-password' in sshd_config.stdout"
+        fail_msg: "Effective SSH configuration does not meet baseline policy."
+
+    - name: Verify SELinux is enforcing
+      ansible.builtin.command:
+        cmd: getenforce
+      register: selinux_state
+      changed_when: false
+      failed_when: selinux_state.stdout != "Enforcing"
+
+    - name: Verify Ansible sudo access
+      ansible.builtin.command:
+        cmd: sudo -n true
+      become: false
+      changed_when: false
+
+    - name: Verify required troubleshooting commands
+      ansible.builtin.shell:
+        cmd: command -v {{ item }}
+        executable: /bin/bash
+      loop:
+        - dig
+        - ncat
+        - tcpdump
+        - traceroute
+        - curl
+        - tree
+        - git
+        - rsync
+      changed_when: false
+
+    - name: Baseline validation passed
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} passed the Linux baseline validation."
