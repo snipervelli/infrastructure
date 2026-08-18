@@ -1,0 +1,15 @@
+---
+proxmox_api_host: 10.7.11.70
+proxmox_api_user: ansible@pve
+proxmox_api_token_id: ansible01
+proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+
+proxmox_node: Citadel
+proxmox_template_vmid: 9000
+proxmox_storage: vol1
+
+proxmox_gateway: 10.7.11.1
+proxmox_nameserver: 10.7.11.40
+proxmox_searchdomain: erwinsolutions.com
+
+proxmox_validate_certs: false
