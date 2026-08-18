@@ -1,0 +1,252 @@
+---
+- name: Provision Rocky Linux VM from Proxmox template
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars_files:
+    - ../group_vars/proxmox/main.yml
+    - ../group_vars/proxmox/vault.yml
+
+  vars:
+    vm_cores: 2
+    vm_memory: 4096
+    vm_storage: "{{ proxmox_storage }}"
+    vm_gateway: "{{ proxmox_gateway }}"
+    vm_nameserver: "{{ proxmox_nameserver }}"
+    vm_searchdomain: "{{ proxmox_searchdomain }}"
+    vm_ciuser: ansible
+
+  pre_tasks:
+    - name: Require VM ID
+      ansible.builtin.assert:
+        that:
+          - vmid is defined
+        fail_msg: "Required variable vmid was not supplied."
+
+    - name: Require VM name
+      ansible.builtin.assert:
+        that:
+          - vm_name is defined
+          - vm_name | length > 0
+        fail_msg: "Required variable vm_name was not supplied."
+
+    - name: Require VM IP
+      ansible.builtin.assert:
+        that:
+          - vm_ip is defined
+          - vm_ip | length > 0
+        fail_msg: "Required variable vm_ip was not supplied."
+
+    - name: Check whether requested VM ID already exists
+      ansible.builtin.uri:
+        url: "https://{{ proxmox_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: >-
+            PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}
+        validate_certs: "{{ proxmox_validate_certs }}"
+        return_content: true
+      register: existing_vms
+      no_log: true
+
+    - name: Refuse to overwrite existing VM ID
+      ansible.builtin.assert:
+        that:
+          - >
+            (
+              existing_vms.json.data
+              | selectattr('vmid', 'defined')
+              | map(attribute='vmid')
+              | map('int')
+              | list
+            )
+            is not contains(vmid | int)
+        fail_msg: "VMID {{ vmid }} already exists in Proxmox."
+
+  tasks:
+    - name: Clone Rocky template
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        node: "{{ proxmox_node }}"
+        clone: "tmpl-rocky98"
+        vmid: "{{ proxmox_template_vmid }}"
+        newid: "{{ vmid }}"
+        name: "{{ vm_name }}"
+        full: true
+        storage: "{{ vm_storage }}"
+        timeout: 300
+        state: present
+      no_log: true
+
+    - name: Configure CPU and memory
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        cores: "{{ vm_cores }}"
+        memory: "{{ vm_memory }}"
+        update: true
+      no_log: true
+
+    - name: Configure Cloud-Init networking
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        ciuser: "{{ vm_ciuser }}"
+        ipconfig:
+          ipconfig0: "ip={{ vm_ip }},gw={{ vm_gateway }}"
+        nameservers:
+          - "{{ vm_nameserver }}"
+        searchdomains:
+          - "{{ vm_searchdomain }}"
+        update: true
+      no_log: true
+
+    - name: Start VM
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        state: started
+      no_log: true
+
+    - name: Extract VM IP without CIDR
+      ansible.builtin.set_fact:
+        vm_ip_address: "{{ vm_ip.split('/')[0] }}"
+
+    - name: Wait for SSH port
+      ansible.builtin.wait_for:
+        host: "{{ vm_ip_address }}"
+        port: 22
+        timeout: 300
+        delay: 10
+
+    - name: Ensure SSH directory exists
+      ansible.builtin.file:
+        path: "{{ lookup('env', 'HOME') }}/.ssh"
+        state: directory
+        owner: "{{ lookup('env', 'USER') }}"
+        mode: '0700'
+
+    - name: Ensure known_hosts exists
+      ansible.builtin.copy:
+        dest: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+        content: ""
+        force: false
+        mode: '0600'
+
+    - name: Remove stale SSH host key for IP
+      ansible.builtin.known_hosts:
+        name: "{{ vm_ip_address }}"
+        path: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+        state: absent
+
+    - name: Scan new SSH host key
+      ansible.builtin.command:
+        cmd: "ssh-keyscan -T 10 {{ vm_ip_address }}"
+      register: new_vm_host_key
+      changed_when: false
+      retries: 12
+      delay: 5
+      until:
+        - new_vm_host_key.rc == 0
+        - new_vm_host_key.stdout | length > 0
+
+    - name: Trust new SSH host key
+      ansible.builtin.known_hosts:
+        name: "{{ vm_ip_address }}"
+        key: "{{ item }}"
+        path: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+        state: present
+      loop: "{{ new_vm_host_key.stdout_lines | reject('match', '^#') | list }}"
+
+    - name: Add new VM to temporary inventory
+      ansible.builtin.add_host:
+        name: "{{ vm_name }}"
+        groups:
+          - newly_provisioned
+        ansible_host: "{{ vm_ip_address }}"
+        ansible_user: ansible
+        ansible_ssh_private_key_file: "{{ lookup('env', 'HOME') }}/.ssh/ansible_ed25519"
+
+    - name: Wait for Ansible SSH connectivity
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+        sleep: 5
+      delegate_to: "{{ vm_name }}"
+
+- name: Apply baseline to new Rocky VM
+  hosts: newly_provisioned
+  gather_facts: true
+  become: true
+
+  roles:
+    - base_linux
+
+- name: Validate newly provisioned Rocky VM
+  hosts: newly_provisioned
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Verify required services are running
+      ansible.builtin.command:
+        cmd: systemctl is-active {{ item }}
+      loop:
+        - sshd
+        - chronyd
+        - firewalld
+        - qemu-guest-agent
+      changed_when: false
+
+    - name: Read effective SSH configuration
+      ansible.builtin.command:
+        cmd: sshd -T
+      register: sshd_config
+      changed_when: false
+
+    - name: Verify SSH security policy
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in sshd_config.stdout"
+          - "'pubkeyauthentication yes' in sshd_config.stdout"
+          - "'permitrootlogin without-password' in sshd_config.stdout or 'permitrootlogin prohibit-password' in sshd_config.stdout"
+        fail_msg: "Effective SSH configuration does not meet baseline policy."
+
+    - name: Verify SELinux is enforcing
+      ansible.builtin.command:
+        cmd: getenforce
+      register: selinux_state
+      changed_when: false
+      failed_when: selinux_state.stdout != "Enforcing"
+
+    - name: Verify non-interactive sudo
+      ansible.builtin.command:
+        cmd: sudo -n true
+      become: false
+      changed_when: false
+
+    - name: Provisioning complete
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} provisioned successfully at
+          {{ ansible_host }}.
