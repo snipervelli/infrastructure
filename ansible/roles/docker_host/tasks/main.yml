@@ -1,0 +1,97 @@
+---
+- name: Install Docker host prerequisite packages
+  ansible.builtin.dnf:
+    name: "{{ docker_host_packages }}"
+    state: present
+
+- name: Add Docker CE repository
+  ansible.builtin.command:
+    cmd: dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+  args:
+    creates: /etc/yum.repos.d/docker-ce.repo
+
+- name: Install Docker Engine and Compose plugin
+  ansible.builtin.dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Ensure Docker service is enabled and running
+  ansible.builtin.service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Add approved users to docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_host_users }}"
+
+- name: Create Docker root directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: docker
+    mode: '0775'
+  loop:
+    - "{{ docker_host_root }}"
+    - "{{ docker_host_stacks_dir }}"
+    - "{{ docker_host_data_dir }}"
+    - "{{ docker_host_backup_dir }}"
+
+- name: Create QNAP mountpoint
+  ansible.builtin.file:
+    path: "{{ docker_host_qnap_mountpoint }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: docker_host_qnap_mount_enabled | bool
+
+- name: Configure QNAP NFS mount
+  ansible.posix.mount:
+    src: "{{ docker_host_qnap_server }}:{{ docker_host_qnap_export }}"
+    path: "{{ docker_host_qnap_mountpoint }}"
+    fstype: nfs
+    opts: "{{ docker_host_qnap_options }}"
+    state: mounted
+  when: docker_host_qnap_mount_enabled | bool
+
+- name: Ensure required firewall services are enabled
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ docker_host_firewall_services }}"
+
+- name: Verify Docker version
+  ansible.builtin.command:
+    cmd: docker --version
+  register: docker_version
+  changed_when: false
+
+- name: Verify Docker Compose version
+  ansible.builtin.command:
+    cmd: docker compose version
+  register: docker_compose_version
+  changed_when: false
+
+- name: Verify Docker daemon
+  ansible.builtin.command:
+    cmd: docker info
+  changed_when: false
+
+- name: Docker host ready
+  ansible.builtin.debug:
+    msg:
+      - "{{ inventory_hostname }} is configured as a Docker host."
+      - "{{ docker_version.stdout }}"
+      - "{{ docker_compose_version.stdout }}"

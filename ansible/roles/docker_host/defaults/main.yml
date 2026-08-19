@@ -1,0 +1,25 @@
+---
+docker_host_packages:
+  - dnf-plugins-core
+  - nfs-utils
+  - jq
+  - git
+  - curl
+  - rsync
+
+docker_host_users:
+  - ansible
+
+docker_host_root: /opt/docker
+docker_host_stacks_dir: /opt/docker/stacks
+docker_host_data_dir: /opt/docker/data
+docker_host_backup_dir: /opt/docker/backups
+
+docker_host_qnap_mount_enabled: false
+docker_host_qnap_server: 10.7.11.30
+docker_host_qnap_export: /Public
+docker_host_qnap_mountpoint: /mnt/qnap
+docker_host_qnap_options: "rw,hard,nfsvers=4.1,_netdev"
+
+docker_host_firewall_services:
+  - ssh
