@@ -1,0 +1,84 @@
+---
+- name: Deploy Gluetun VPN gateway
+  hosts: docker
+  become: true
+  gather_facts: false
+
+  vars:
+    gluetun_stack_src: "{{ playbook_dir }}/../../containers/stacks/gluetun"
+    gluetun_stack_dest: /opt/docker/stacks/gluetun
+    gluetun_data_dir: /opt/docker/data/gluetun
+
+  tasks:
+    - name: Ensure Gluetun data directory exists
+      ansible.builtin.file:
+        path: "{{ gluetun_data_dir }}"
+        state: directory
+        owner: root
+        group: docker
+        mode: '0770'
+
+    - name: Ensure Gluetun stack directory exists
+      ansible.builtin.file:
+        path: "{{ gluetun_stack_dest }}"
+        state: directory
+        owner: root
+        group: docker
+        mode: '0770'
+
+    - name: Deploy Gluetun Compose definition
+      ansible.builtin.copy:
+        src: "{{ gluetun_stack_src }}/compose.yml"
+        dest: "{{ gluetun_stack_dest }}/compose.yml"
+        owner: root
+        group: docker
+        mode: '0640'
+
+    - name: Deploy Gluetun environment file
+      ansible.builtin.copy:
+        dest: "{{ gluetun_stack_dest }}/.env"
+        owner: root
+        group: docker
+        mode: '0600'
+        content: |
+          PIA_USERNAME={{ pia_username }}
+          PIA_PASSWORD={{ pia_password }}
+      no_log: true
+
+    - name: Validate Gluetun Compose configuration
+      ansible.builtin.command:
+        cmd: docker compose config --quiet
+        chdir: "{{ gluetun_stack_dest }}"
+      changed_when: false
+      no_log: true
+
+    - name: Deploy Gluetun
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ gluetun_stack_dest }}"
+      register: gluetun_deploy
+      changed_when: >-
+        'Started' in gluetun_deploy.stdout or
+        'Created' in gluetun_deploy.stdout or
+        'Recreated' in gluetun_deploy.stdout or
+        'Pulled' in gluetun_deploy.stdout
+      no_log: true
+
+    - name: Wait for Gluetun container to be running
+      ansible.builtin.command:
+        cmd: docker inspect -f {{ '{{' }}.State.Running{{ '}}' }} gluetun
+      register: gluetun_running
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: gluetun_running.stdout == "true"
+
+    - name: Show Gluetun container status
+      ansible.builtin.command:
+        cmd: docker ps --filter name=gluetun --format "table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}"
+      register: gluetun_status
+      changed_when: false
+
+    - name: Gluetun deployment status
+      ansible.builtin.debug:
+        var: gluetun_status.stdout_lines

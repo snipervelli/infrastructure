@@ -1,0 +1,50 @@
+---
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    restart: unless-stopped
+
+    cap_add:
+      - NET_ADMIN
+
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    environment:
+      VPN_SERVICE_PROVIDER: "private internet access"
+      VPN_TYPE: "openvpn"
+      OPENVPN_USER: "${PIA_USERNAME}"
+      OPENVPN_PASSWORD: "${PIA_PASSWORD}"
+      OPENVPN_PROTOCOL: "udp"
+
+    volumes:
+      - /opt/docker/data/gluetun:/gluetun
+
+    ports:
+      - "8080:8080"
+
+    logging:
+      driver: local
+
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    restart: unless-stopped
+
+    network_mode: "service:gluetun"
+
+    depends_on:
+      - gluetun
+
+    environment:
+      PUID: "1000"
+      PGID: "100"
+      TZ: "America/New_York"
+
+    volumes:
+      - /opt/docker/data/sabnzbd:/config
+      - /mnt/bethel/Downloads:/downloads
+
+    logging:
+      driver: local

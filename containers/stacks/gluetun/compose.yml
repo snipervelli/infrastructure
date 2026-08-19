@@ -1,0 +1,25 @@
+---
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    restart: unless-stopped
+
+    cap_add:
+      - NET_ADMIN
+
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    environment:
+      VPN_SERVICE_PROVIDER: "private internet access"
+      VPN_TYPE: "openvpn"
+      OPENVPN_USER: "${PIA_USERNAME}"
+      OPENVPN_PASSWORD: "${PIA_PASSWORD}"
+      OPENVPN_PROTOCOL: "udp"
+
+    volumes:
+      - /opt/docker/data/gluetun:/gluetun
+
+    logging:
+      driver: local
