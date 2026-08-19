@@ -1,0 +1,6 @@
+---
+docker_host_qnap_mount_enabled: true
+docker_host_qnap_server: 10.7.11.30
+docker_host_qnap_export: /Public
+docker_host_qnap_mountpoint: /mnt/bethel
+docker_host_qnap_options: "rw,hard,nfsvers=4.1,_netdev"
