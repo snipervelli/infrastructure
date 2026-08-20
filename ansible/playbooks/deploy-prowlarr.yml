@@ -1,0 +1,72 @@
+---
+- name: Deploy Prowlarr
+  hosts: docker
+  become: true
+  gather_facts: false
+
+  vars:
+    prowlarr_stack_src: "{{ playbook_dir }}/../../containers/stacks/prowlarr"
+    prowlarr_stack_dest: /opt/docker/stacks/prowlarr
+    prowlarr_data_dir: /opt/docker/data/prowlarr
+
+  tasks:
+    - name: Ensure Prowlarr data directory exists
+      ansible.builtin.file:
+        path: "{{ prowlarr_data_dir }}"
+        state: directory
+        owner: "1000"
+        group: "100"
+        mode: '0770'
+
+    - name: Ensure Prowlarr stack directory exists
+      ansible.builtin.file:
+        path: "{{ prowlarr_stack_dest }}"
+        state: directory
+        owner: root
+        group: docker
+        mode: '0770'
+
+    - name: Deploy Prowlarr Compose definition
+      ansible.builtin.copy:
+        src: "{{ prowlarr_stack_src }}/compose.yml"
+        dest: "{{ prowlarr_stack_dest }}/compose.yml"
+        owner: root
+        group: docker
+        mode: '0640'
+
+    - name: Validate Prowlarr Compose configuration
+      ansible.builtin.command:
+        cmd: docker compose config --quiet
+        chdir: "{{ prowlarr_stack_dest }}"
+      changed_when: false
+
+    - name: Deploy Prowlarr
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ prowlarr_stack_dest }}"
+      register: prowlarr_deploy
+      changed_when: >-
+        'Started' in prowlarr_deploy.stdout or
+        'Created' in prowlarr_deploy.stdout or
+        'Recreated' in prowlarr_deploy.stdout or
+        'Pulled' in prowlarr_deploy.stdout
+
+    - name: Wait for Prowlarr web interface
+      ansible.builtin.uri:
+        url: http://127.0.0.1:9696
+        status_code: 200
+      register: prowlarr_http
+      retries: 30
+      delay: 2
+      until: prowlarr_http.status == 200
+
+    - name: Show Prowlarr status
+      ansible.builtin.command:
+        cmd: docker compose ps
+        chdir: "{{ prowlarr_stack_dest }}"
+      register: prowlarr_status
+      changed_when: false
+
+    - name: Deployment complete
+      ansible.builtin.debug:
+        var: prowlarr_status.stdout_lines

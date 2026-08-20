@@ -1,0 +1,72 @@
+---
+- name: Deploy Sonarr
+  hosts: docker
+  become: true
+  gather_facts: false
+
+  vars:
+    sonarr_stack_src: "{{ playbook_dir }}/../../containers/stacks/sonarr"
+    sonarr_stack_dest: /opt/docker/stacks/sonarr
+    sonarr_data_dir: /opt/docker/data/sonarr
+
+  tasks:
+    - name: Ensure Sonarr data directory exists
+      ansible.builtin.file:
+        path: "{{ sonarr_data_dir }}"
+        state: directory
+        owner: "1000"
+        group: "100"
+        mode: '0770'
+
+    - name: Ensure Sonarr stack directory exists
+      ansible.builtin.file:
+        path: "{{ sonarr_stack_dest }}"
+        state: directory
+        owner: root
+        group: docker
+        mode: '0770'
+
+    - name: Deploy Sonarr Compose definition
+      ansible.builtin.copy:
+        src: "{{ sonarr_stack_src }}/compose.yml"
+        dest: "{{ sonarr_stack_dest }}/compose.yml"
+        owner: root
+        group: docker
+        mode: '0640'
+
+    - name: Validate Sonarr Compose configuration
+      ansible.builtin.command:
+        cmd: docker compose config --quiet
+        chdir: "{{ sonarr_stack_dest }}"
+      changed_when: false
+
+    - name: Deploy Sonarr
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ sonarr_stack_dest }}"
+      register: sonarr_deploy
+      changed_when: >-
+        'Started' in sonarr_deploy.stdout or
+        'Created' in sonarr_deploy.stdout or
+        'Recreated' in sonarr_deploy.stdout or
+        'Pulled' in sonarr_deploy.stdout
+
+    - name: Wait for Sonarr web interface
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8989
+        status_code: 200
+      register: sonarr_http
+      retries: 30
+      delay: 2
+      until: sonarr_http.status == 200
+
+    - name: Show Sonarr status
+      ansible.builtin.command:
+        cmd: docker compose ps
+        chdir: "{{ sonarr_stack_dest }}"
+      register: sonarr_status
+      changed_when: false
+
+    - name: Deployment complete
+      ansible.builtin.debug:
+        var: sonarr_status.stdout_lines
